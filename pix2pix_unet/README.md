@@ -45,7 +45,9 @@ cd pix2pix_pytorch
 Download the “maps” dataset in the pix2pix_unet/data/ folder.
 
 ```bash
+cd input/
 wget http://efrosgans.eecs.berkeley.edu/pix2pix/datasets/maps.tar.gz
+tar -xzvf maps.tar.gz
 ```
 
 Then, run the following script that will pre-process the data for training
