@@ -2,8 +2,8 @@ import os
 import cv2
 
 # Directorios de entrada y salida
-input_dirs = ["../data/maps/train", "../data/maps/val"]
-output_base_dir = "../data/maps_processed"
+input_dirs = ["../input/maps/train", "../data/input/val"]
+output_base_dir = "../input/maps_processed"
 
 # Crear directorios de salida para X1 y X2 en train y val
 for split in ["train", "val"]:

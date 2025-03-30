@@ -434,8 +434,8 @@ if __name__ == "__main__":
     print(f"📂 Resultados por almacenar en: {output_dir}")
 
     # Rutas de las carpetas de imágenes
-    root_dir_X1 = f"data/{dataset_name}/X1/train/"  # Carpeta de imágenes de entrada
-    root_dir_X2 = f"data/{dataset_name}/X2/train/"  # Carpeta de imágenes objetivo
+    root_dir_X1 = f"input/{dataset_name}/X1/train/"  # Carpeta de imágenes de entrada
+    root_dir_X2 = f"input/{dataset_name}/X2/train/"  # Carpeta de imágenes objetivo
 
     # Crear dataset personalizado desde carpetas
     dataset = Pix2PixDataset(root_dir_X1, root_dir_X2)
