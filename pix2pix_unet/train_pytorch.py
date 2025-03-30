@@ -303,42 +303,73 @@ def summarize_performance(step, generator, dataloader, output_dir, n_samples=3):
     X_realB = (X_realB.cpu().permute(0, 2, 3, 1).numpy() + 1) / 2.0
     X_fakeB = (X_fakeB.cpu().permute(0, 2, 3, 1).numpy() + 1) / 2.0
 
+    # Asegurar que las dimensiones sean (N, H, W, C) incluso si el batch_size = 1
+    if X_realA.ndim == 3:
+        X_realA = np.expand_dims(X_realA, axis=0)
+        X_realB = np.expand_dims(X_realB, axis=0)
+        X_fakeB = np.expand_dims(X_fakeB, axis=0)
+
     # Ajustar el número de muestras si el batch_size es 1
     n_samples = min(n_samples, X_realA.shape[0])  # Evita errores por batch_size pequeño
 
-    # Guardar resultados en carpeta dinámica
-    plt.figure(figsize=(10, 10))
-    for i in range(n_samples):
-        plt.subplot(3, n_samples, 1 + i)
-        plt.axis('off')
-        plt.imshow(X_realA[i])
+    # Crear carpeta para la época actual en formato epoch_XXXX
+    epoch_dir = os.path.join(output_dir, f'epoch_{step+1:04d}')
+    os.makedirs(epoch_dir, exist_ok=True)
 
-        plt.subplot(3, n_samples, 1 + n_samples + i)
-        plt.axis('off')
-        plt.imshow(X_fakeB[i])
+    # Crear figura horizontal (n_samples filas, 3 columnas)
+    fig, axs = plt.subplots(n_samples, 3, figsize=(3 * 3, 3 * n_samples))
 
-        plt.subplot(3, n_samples, 1 + 2 * n_samples + i)
-        plt.axis('off')
-        plt.imshow(X_realB[i])
+    if n_samples == 1:
+        axs[0].imshow(X_realA[0])
+        axs[0].axis('off')
+        axs[0].set_title('Input')
 
-    # Guardar imágenes en carpeta de salida
-    filename = os.path.join(output_dir, f'plot_{step+1:06d}.png')
-    plt.savefig(filename)
+        axs[1].imshow(X_fakeB[0])
+        axs[1].axis('off')
+        axs[1].set_title('Generated')
+
+        axs[2].imshow(X_realB[0])
+        axs[2].axis('off')
+        axs[2].set_title('Target')
+    else:
+        for i in range(n_samples):
+            axs[i, 0].imshow(X_realA[i])
+            axs[i, 0].axis('off')
+            axs[i, 0].set_title('Input')
+
+            axs[i, 1].imshow(X_fakeB[i])
+            axs[i, 1].axis('off')
+            axs[i, 1].set_title('Generated')
+
+            axs[i, 2].imshow(X_realB[i])
+            axs[i, 2].axis('off')
+            axs[i, 2].set_title('Target')
+
+    # Ajustar bordes para eliminar espacio en blanco
+    plt.tight_layout(pad=0.5, h_pad=0.1, w_pad=0.1)
+    plt.subplots_adjust(left=0, right=1, top=0.95, bottom=0)
+
+    # Guardar imágenes en carpeta de la época actual
+    filename = os.path.join(epoch_dir, f'plot_{step+1:06d}.pdf')
+    plt.savefig(filename, bbox_inches='tight', pad_inches=0)
     plt.close()
     print(f"> Guardado: {filename}")
 
-    # Guardar modelo del generador en la carpeta
-    model_filename = os.path.join(output_dir, f'model_{step+1:06d}.pth')
+    # Guardar modelo del generador en la carpeta de la época
+    model_filename = os.path.join(epoch_dir, f'model_{step+1:06d}.pth')
     torch.save(generator.state_dict(), model_filename)
     print(f"> Modelo guardado: {model_filename}")
 
 
 
-def train(d_model, g_model, gan_model, dataloader, n_epochs=100):
+def train(d_model, g_model, gan_model, dataloader, n_epochs=100, save_every_n=5):
     """Entrena la GAN con muestras reales y falsas generadas usando DataLoader."""
     # Determinar tamaño de salida del discriminador
     sample_input = torch.randn(1, 3, 256, 256).cuda()
     n_patch = d_model(sample_input, sample_input).shape[2]
+
+    # Lista para almacenar pérdidas por época
+    all_losses = []
 
     # Ciclo de entrenamiento
     for epoch in range(n_epochs):
@@ -417,15 +448,62 @@ def train(d_model, g_model, gan_model, dataloader, n_epochs=100):
         epoch_time = time.time() - start_time
         print(f"✅ Época {epoch+1}/{n_epochs} completada en {epoch_time:.2f} segundos.\n")
 
+        # Almacenar pérdidas para visualización
+        all_losses.append((epoch + 1, loss_D.item(), loss_G.item(), loss_L1.item()))
+
         #### ---------------------------
-        #### (4) Guardar Resultados Cada N Épocas
+        #### (4) Guardar resultados y pérdidas cada N épocas
         #### ---------------------------
-        if (epoch + 1) % 1 == 0:
+        if (epoch + 1) % save_every_n == 0:
             summarize_performance(epoch, g_model, dataloader, output_dir)
+            save_losses_txt(all_losses, output_dir)
+            plot_losses(all_losses, output_dir)
+
+    # Guardar pérdidas finales y graficarlas al finalizar el entrenamiento
+    save_losses_txt(all_losses, output_dir)
+    plot_losses(all_losses, output_dir)
+
+
+def save_losses_txt(losses, output_dir):
+    """Guarda las pérdidas en un archivo TXT."""
+    filename = os.path.join(output_dir, "losses.txt")
+    with open(filename, mode='w') as file:
+        for epoch, d_loss, g_loss, l1_loss in losses:
+            file.write(
+                f"Epoch {int(epoch)}: D_loss = {d_loss:.4f}, G_loss = {g_loss:.4f}, L1_loss = {l1_loss:.4f}\n"
+            )
+    print(f"> 📊 Pérdidas guardadas en: {filename}")
+
+def plot_losses(losses, output_dir):
+    """Genera un gráfico de las pérdidas durante el entrenamiento."""
+    losses = np.array(losses)
+    epochs = losses[:, 0]
+    d_loss = losses[:, 1]
+    g_loss = losses[:, 2]
+    l1_loss = losses[:, 3]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, d_loss, label='D_loss', color='red')
+    plt.plot(epochs, g_loss, label='G_loss', color='blue')
+    plt.plot(epochs, l1_loss, label='L1_loss', color='green')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title('Training Losses')
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, "loss_plot.png"))
+    plt.close()
+    print(f"> 📈 Gráfico de pérdidas guardado en: {os.path.join(output_dir, 'loss_plot.png')}")
 
 
 
 if __name__ == "__main__":
+
+    # 📌 Parámetros configurables desde el main
+    BATCH_SIZE = 1                # Tamaño del batch
+    EPOCHS = 2                  # Número de épocas para entrenar
+    SAVE_EVERY_N_EPOCHS = 1       # Guardar resultados cada N épocas
+
     # Crear carpeta dinámica de resultados basada en timestamp y dataset
     dataset_name = "maps_processed"  # Cambia el nombre si es necesario
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -442,7 +520,7 @@ if __name__ == "__main__":
     print(f"✅ Datos cargados desde carpetas: {len(dataset)} muestras.")
 
     # Crear DataLoader para cargar datos por lotes
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
 
     # Crear instancias de generador y discriminador
     generator = Pix2PixGenerator(input_channels=3, output_channels=3).cuda()
@@ -452,5 +530,4 @@ if __name__ == "__main__":
     gan_model = Pix2PixGAN(generator, discriminator).cuda()
 
     # Entrenar modelo usando DataLoader
-    train(discriminator, generator, gan_model, dataloader, n_epochs=100)
-
+    train(discriminator, generator, gan_model, dataloader, n_epochs=EPOCHS, save_every_n=SAVE_EVERY_N_EPOCHS)
