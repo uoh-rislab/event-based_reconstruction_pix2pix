@@ -21,6 +21,8 @@ from datetime import datetime
 import time
 from tqdm import tqdm
 
+import yaml
+
 class Pix2PixDataset(Dataset):
     def __init__(self, root_dir_X1, root_dir_X2, image_size=(256, 256)):
         """Inicializar el dataset desde carpetas"""
@@ -496,13 +498,21 @@ def plot_losses(losses, output_dir):
     print(f"> 📈 Gráfico de pérdidas guardado en: {os.path.join(output_dir, 'loss_plot.png')}")
 
 
+# Cargar configuración desde config.yaml
+def load_config(config_path="config.yaml"):
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+    return config
+
 
 if __name__ == "__main__":
 
-    # 📌 Parámetros configurables desde el main
-    BATCH_SIZE = 1                # Tamaño del batch
-    EPOCHS = 2                  # Número de épocas para entrenar
-    SAVE_EVERY_N_EPOCHS = 1       # Guardar resultados cada N épocas
+    # 📌 Cargar hiperparámetros desde config.yaml
+    config = load_config("yaml/config_asus.yaml")
+
+    BATCH_SIZE = config["BATCH_SIZE"]
+    EPOCHS = config["EPOCHS"]
+    SAVE_EVERY_N_EPOCHS = config["SAVE_EVERY_N_EPOCHS"]
 
     # Crear carpeta dinámica de resultados basada en timestamp y dataset
     dataset_name = "maps_processed"  # Cambia el nombre si es necesario

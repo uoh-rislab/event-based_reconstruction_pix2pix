@@ -19,7 +19,7 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
 ENV PATH=/opt/conda/bin:$PATH
 
 # Crear y activar un entorno de Conda llamado 'myenv'
-RUN conda create -n myenv python=3.8 -y
+RUN conda create -n pix2pix python=3.8 -y
 
 # Establecer el entorno como predeterminado
 SHELL ["conda", "run", "-n", "pix2pix", "/bin/bash", "-c"]
