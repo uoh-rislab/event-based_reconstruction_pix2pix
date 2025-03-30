@@ -8,3 +8,4 @@ scikit-learn
 tqdm
 Pillow
 PyYAML
+opencv-python

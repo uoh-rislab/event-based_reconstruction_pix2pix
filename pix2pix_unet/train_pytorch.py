@@ -517,13 +517,13 @@ if __name__ == "__main__":
     # Crear carpeta dinámica de resultados basada en timestamp y dataset
     dataset_name = "maps_processed"  # Cambia el nombre si es necesario
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"output/{timestamp}_{dataset_name}"
+    output_dir = f"../output/{timestamp}_pix2pix_unet_{dataset_name}"
     os.makedirs(output_dir, exist_ok=True)
     print(f"📂 Resultados por almacenar en: {output_dir}")
 
     # Rutas de las carpetas de imágenes
-    root_dir_X1 = f"input/{dataset_name}/X1/train/"  # Carpeta de imágenes de entrada
-    root_dir_X2 = f"input/{dataset_name}/X2/train/"  # Carpeta de imágenes objetivo
+    root_dir_X1 = f"../input/{dataset_name}/X1/train/"  # Carpeta de imágenes de entrada
+    root_dir_X2 = f"../input/{dataset_name}/X2/train/"  # Carpeta de imágenes objetivo
 
     # Crear dataset personalizado desde carpetas
     dataset = Pix2PixDataset(root_dir_X1, root_dir_X2)
