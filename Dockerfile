@@ -18,7 +18,11 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
 # Configurar Conda en el PATH
 ENV PATH=/opt/conda/bin:$PATH
 
-# Crear y activar un entorno de Conda llamado 'myenv'
+# Aceptar los términos de servicio de Anaconda antes de crear el entorno
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
+# Crear y activar un entorno de Conda llamado 'pix2pix'
 RUN conda create -n pix2pix python=3.8 -y
 
 # Establecer el entorno como predeterminado

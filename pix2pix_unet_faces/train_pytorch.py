@@ -290,21 +290,27 @@ def generate_fake_samples(generator, samples, patch_shape):
 
 
 @torch.no_grad()
-def summarize_performance(step,
-                          generator,
-                          dataset_val,
-                          output_dir,
-                          subjects: List[str],
-                          device,
-                          save_model: bool = True):
+def summarize_performance(
+    step: int,
+    generator: nn.Module,
+    dataset,                 # <- ahora genérico: puede ser train o val
+    output_dir: str,
+    subjects: List[str],
+    device,
+    split: str,              # <- "train" o "val"
+    save_model: bool = True
+):
     """
-    Genera DOS PDFs por sujeto:
-      - Horizontal: 1 fila x 3 columnas  -> *_H.pdf
-      - Vertical:   3 filas x 1 columna  -> *_V.pdf
-    Orden: Input (invertido) / Generated / Target
+    Genera DOS PDFs por sujeto y por split:
+      - Horizontal (1x3) -> *_H.pdf
+      - Vertical   (3x1) -> *_V.pdf
+    Orden: Input (invertido) / Generated / Target.
+    Se guardan en: .../epoch_XXXX/<split>/
     """
     generator.eval()
-    epoch_dir = os.path.join(output_dir, f'epoch_{step+1:04d}')
+
+    # Carpeta por época y por split
+    epoch_dir = os.path.join(output_dir, f'epoch_{step+1:04d}', split)
     os.makedirs(epoch_dir, exist_ok=True)
 
     def _to_np_batches(one_A: torch.Tensor, one_B: torch.Tensor):
@@ -312,7 +318,7 @@ def summarize_performance(step,
         X_realA = to_numpy_img_batch(one_A)
         X_realB = to_numpy_img_batch(one_B)
         X_fakeB = to_numpy_img_batch(fake_B)
-        X_realA_inv = 1.0 - X_realA
+        X_realA_inv = 1.0 - X_realA   # solo visual
         return X_realA_inv[0], X_fakeB[0], X_realB[0]
 
     def _save_horizontal(inp, gen, tgt, out_path: str):
@@ -335,31 +341,43 @@ def summarize_performance(step,
         plt.close()
         print(f"Saved: {out_path}")
 
+    # --- helper robusto para encontrar índice por sujeto ---
+    def _find_idx_for_subject(name_list: List[str], subj: str):
+        # intenta varias formas: "S52", "S052", "_52_", "-52", "52_"
+        candidates = {subj, f"S{subj}", f"S{subj.zfill(3)}"}
+        # también prueba si el número aislado aparece con delimitadores comunes
+        extra = [f"_{subj}_", f"-{subj}-", f"_{subj}.", f"-{subj}.", f"{subj}_", f"{subj}-"]
+        candidates.update(extra)
+        for i, fname in enumerate(name_list):
+            if any(c in fname for c in candidates):
+                return i
+        # última chance: contiene el número “tal cual”
+        for i, fname in enumerate(name_list):
+            if subj in fname:
+                return i
+        return None
+
     any_plotted = False
     for subj in subjects:
-        # Buscar primera muestra que matchee al sujeto
-        idx_match = next((i for i, fname in enumerate(dataset_val.image_filenames) if subj in fname), None)
+        idx_match = _find_idx_for_subject(dataset.image_filenames, subj)
         if idx_match is None:
-            print(f"[WARN] No matching samples for subject '{subj}'.")
+            print(f"[WARN] No matching samples for subject '{subj}' in split '{split}'.")
             continue
 
-        a, b, fname = dataset_val[idx_match]
+        a, b, fname = dataset[idx_match]
         one_A = a.unsqueeze(0).to(device)
         one_B = b.unsqueeze(0).to(device)
 
         inp, gen, tgt = _to_np_batches(one_A, one_B)
 
-        # Archivos de salida por sujeto
-        base = os.path.join(epoch_dir, f'plot_{step+1:06d}_{subj}')
-        out_pdf_h = f"{base}_H.pdf"
-        out_pdf_v = f"{base}_V.pdf"
-
-        _save_horizontal(inp, gen, tgt, out_pdf_h)
-        _save_vertical(inp, gen, tgt, out_pdf_v)
+        base = os.path.join(epoch_dir, f'plot_{step+1:06d}_{split}_{subj}')
+        _save_horizontal(inp, gen, tgt, f"{base}_H.pdf")
+        _save_vertical(inp, gen, tgt, f"{base}_V.pdf")
         any_plotted = True
 
-    if save_model and any_plotted:
-        model_filename = os.path.join(epoch_dir, f'model_{step+1:06d}.pth')
+    # Guarda el modelo una sola vez por época si hubo al menos un plot (solo en split val)
+    if save_model and any_plotted and split == "val":
+        model_filename = os.path.join(output_dir, f'epoch_{step+1:04d}', f'model_{step+1:06d}.pth')
         torch.save(generator.state_dict(), model_filename)
         print(f"Model saved: {model_filename}")
 
@@ -612,14 +630,33 @@ def train(d_model, g_model, gan_model,
         print(f"[Epoch {epoch+1}] Train metrics: {train_metrics}")
         print(f"[Epoch {epoch+1}] Val   metrics: {val_metrics}")
 
-        # --- Guardados y plots cada N épocas ---
         if (epoch + 1) % save_every_n == 0:
+            # Sujetos VAL (como ya usabas)
+            val_subjects = ["S130", "S132", "S111", "S124", "S125"]
             summarize_performance(
-                epoch, g_model, val_loader.dataset, output_dir,
-                subjects=["S130", "S132", "S111", "S124", "S125"],
+                step=epoch,
+                generator=g_model,
+                dataset=val_loader.dataset,
+                output_dir=output_dir,
+                subjects=val_subjects,
                 device=device,
-                save_model=True
+                split="val",
+                save_model=True      # guarda el .pth una vez por época
             )
+
+            # Sujetos TRAIN 
+            train_subjects = ["S052", "S055", "S074", "S106", "S113", "S121"]
+            summarize_performance(
+                step=epoch,
+                generator=g_model,
+                dataset=train_loader.dataset,
+                output_dir=output_dir,
+                subjects=train_subjects,
+                device=device,
+                split="train",
+                save_model=False     # no necesitamos guardar otra vez
+            )
+
             save_losses_txt(all_losses, output_dir)
             plot_losses(all_losses, output_dir)
 
