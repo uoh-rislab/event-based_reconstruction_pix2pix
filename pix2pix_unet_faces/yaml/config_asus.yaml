@@ -1,0 +1,6 @@
+# Configuration for Pix2Pix Training
+
+# Hyperparameters
+BATCH_SIZE: 1         # Number of samples per batch
+EPOCHS: 2            # Total number of epochs to train
+SAVE_EVERY_N_EPOCHS: 1  # Save results every N epochs

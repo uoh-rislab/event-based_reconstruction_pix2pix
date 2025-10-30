@@ -22,6 +22,7 @@ import time
 from tqdm import tqdm
 
 import yaml
+import timm
 
 class Pix2PixDataset(Dataset):
     def __init__(self, root_dir_X1, root_dir_X2, image_size=(256, 256)):
@@ -118,6 +119,47 @@ class PatchDiscriminator(nn.Module):
 
         return x
 
+# Define Encoder con ViT
+class ViTEncoder(nn.Module):
+    def __init__(self, img_size=256, patch_size=16, embed_dim=768):
+        super(ViTEncoder, self).__init__()
+
+        # Cargar modelo ViT base preentrenado para 224x224
+        self.vit = timm.create_model('vit_base_patch16_224', pretrained=False)
+
+        # Cambiar img_size y número de patches para 256x256
+        self.vit.patch_embed.img_size = (img_size, img_size)  # Forzar a 256x256
+        self.vit.patch_embed.grid_size = (img_size // patch_size, img_size // patch_size)
+        self.vit.patch_embed.num_patches = (img_size // patch_size) ** 2
+
+        # Interpolar pos_embed para 256 patches
+        num_patches_vit = (224 // patch_size) ** 2  # 14x14 = 196
+        num_patches_new = (img_size // patch_size) ** 2  # 16x16 = 256
+
+        # Si el tamaño no coincide, redimensionar pos_embed
+        if num_patches_new != num_patches_vit:
+            print(f"Interpolating pos_embed from {num_patches_vit} to {num_patches_new} patches for {img_size}x{img_size}")
+            
+            # Obtener pos_embed excepto el token de clase
+            pos_embed_interp = F.interpolate(
+                self.vit.pos_embed[:, 1:].reshape(1, 14, 14, -1).permute(0, 3, 1, 2),
+                size=(img_size // patch_size, img_size // patch_size),
+                mode='bicubic',
+                align_corners=False
+            ).permute(0, 2, 3, 1).reshape(1, num_patches_new, -1)
+
+            # Concatenar token de clase al nuevo pos_embed interpolado
+            self.vit.pos_embed = nn.Parameter(
+                torch.cat([self.vit.pos_embed[:, :1], pos_embed_interp], dim=1)
+            )
+
+    def forward(self, x):
+        # NO redimensionar x, directamente pasarla al modelo ViT
+        x = self.vit.forward_features(x)
+        return x
+
+
+
 # Define Encoder Block
 class EncoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels, batchnorm=True):
@@ -149,7 +191,12 @@ class DecoderBlock(nn.Module):
         x = self.bn(x)
         if self.dropout is not None:
             x = self.dropout(x)
-        # Concatenar con skip connection
+
+        # Validación para ajustar tamaño antes de concatenar
+        if x.size(2) != skip_connection.size(2) or x.size(3) != skip_connection.size(3):
+            skip_connection = F.interpolate(skip_connection, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
+
+        # Concatenar después de ajustar tamaño
         x = torch.cat([x, skip_connection], dim=1)
         x = self.relu(x)
         return x
@@ -159,59 +206,67 @@ class Pix2PixGenerator(nn.Module):
     def __init__(self, input_channels=3, output_channels=3):
         super(Pix2PixGenerator, self).__init__()
 
-        # Encoder (Downsampling)
-        self.e1 = EncoderBlock(input_channels, 64, batchnorm=False)
-        self.e2 = EncoderBlock(64, 128)
-        self.e3 = EncoderBlock(128, 256)
-        self.e4 = EncoderBlock(256, 512)
-        self.e5 = EncoderBlock(512, 512)
-        self.e6 = EncoderBlock(512, 512)
-        self.e7 = EncoderBlock(512, 512)
+        # Encoder ViT modificado para 256x256
+        self.vit_encoder = ViTEncoder(img_size=256, patch_size=16, embed_dim=768)
 
-        # Bottleneck (sin BatchNorm + ReLU)
-        self.bottleneck = nn.Sequential(
-            nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(inplace=True)
-        )
+        # Proyectar ViT a 512 canales para el bottleneck
+        self.vit_to_512 = nn.Conv2d(768, 512, kernel_size=1)
 
-        # Decoder (Upsampling)
-        self.d1 = DecoderBlock(512, 512)
-        self.d2 = DecoderBlock(1024, 512)
-        self.d3 = DecoderBlock(1024, 512)
-        self.d4 = DecoderBlock(1024, 512, dropout=False)
-        self.d5 = DecoderBlock(1024, 256, dropout=False)
-        self.d6 = DecoderBlock(512, 128, dropout=False)
-        self.d7 = DecoderBlock(256, 64, dropout=False)
+        # Proyecciones para skip connections
+        self.skip256_proj = nn.Conv2d(512, 256, kernel_size=1)
+        self.skip128_proj = nn.Conv2d(512, 128, kernel_size=1)
 
-        # Output layer: ConvTranspose + Tanh
-        self.out_conv = nn.ConvTranspose2d(128, output_channels, kernel_size=4, stride=2, padding=1)
+        # Proyección de la imagen original para skip final
+        self.input_proj = nn.Conv2d(3, 128, kernel_size=1)
+
+        # Bloques del decoder (ajustado para llegar exactamente a 256x256)
+        self.d1 = DecoderBlock(512, 512)   # 16 -> 32
+        self.d2 = DecoderBlock(1024, 512)  # 32 -> 64
+        self.d3 = DecoderBlock(640, 256)   # 64 -> 128
+        self.d4 = DecoderBlock(512, 256, dropout=False)  # 128 -> 256 (corregido a 512)
+
+        # Proyección de la imagen original para skip final a 256x256
+        self.input_proj = nn.Conv2d(3, 128, kernel_size=1)
+
+        # Capa final ajustada para recibir 128+128 canales a 256x256
+        self.out_conv = nn.ConvTranspose2d(256 + 128 + 256, 3, kernel_size=3, stride=1, padding=1)
         self.out_activation = nn.Tanh()
 
     def forward(self, x):
-        # Encoder Forward Pass
-        e1 = self.e1(x)
-        e2 = self.e2(e1)
-        e3 = self.e3(e2)
-        e4 = self.e4(e3)
-        e5 = self.e5(e4)
-        e6 = self.e6(e5)
-        e7 = self.e7(e6)
+        batch = x.size(0)
+        embed_dim = 768
+        h, w = 16, 16
 
-        # Bottleneck
-        b = self.bottleneck(e7)
+        feat = self.vit_encoder(x)  # [batch, num_patches+1, embed_dim]
 
-        # Decoder Forward Pass + Skip Connections
-        d1 = self.d1(b, e7)
-        d2 = self.d2(d1, e6)
-        d3 = self.d3(d2, e5)
-        d4 = self.d4(d3, e4)
-        d5 = self.d5(d4, e3)
-        d6 = self.d6(d5, e2)
-        d7 = self.d7(d6, e1)
+        # Usa otro nombre aquí, como vit_feat:
+        vit_feat = feat[:, 1:, :].permute(0, 2, 1)
+        vit_feat = vit_feat.reshape(batch, embed_dim, h, w)
 
-        # Output Layer
-        out_image = self.out_activation(self.out_conv(d7))
+        # Continúa correctamente usando vit_feat en adelante:
+        feat = self.vit_to_512(vit_feat)
+
+        skip_256 = self.skip256_proj(F.interpolate(feat, size=(64, 64), mode='bilinear', align_corners=False))
+        skip_128 = self.skip128_proj(F.interpolate(feat, size=(32, 32), mode='bilinear', align_corners=False))
+
+        d1_out = self.d1(feat, feat)         # 32x32
+        d2_out = self.d2(d1_out, skip_128)   # 64x64
+        d3_out = self.d3(d2_out, skip_256)   # 128x128
+        d4_out = self.d4(d3_out, skip_256)   # 256x256 (final size)
+
+        # Ahora sí usas el x original (entrada RGB, 3 canales):
+        orig_feat = self.input_proj(
+            F.interpolate(x, size=(d4_out.size(2), d4_out.size(3)), mode='bilinear', align_corners=False)
+        )
+
+        final_in = torch.cat([d4_out, orig_feat], dim=1)
+
+        out_image = self.out_activation(self.out_conv(final_in))
         return out_image
+
+
+
+
 
 class Pix2PixGAN(nn.Module):
     def __init__(self, generator, discriminator, lr=0.0002, beta1=0.5):
@@ -228,8 +283,10 @@ class Pix2PixGAN(nn.Module):
             param.requires_grad = False
 
         # Configurar optimizadores para generador y discriminador
-        self.optimizer_G = optim.Adam(self.generator.parameters(), lr=lr, betas=(beta1, 0.999))
-        self.optimizer_D = optim.Adam(self.discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
+        self.optimizer_G = optim.Adam(generator.parameters(), lr=1e-4, betas=(0.5, 0.999))
+        self.optimizer_D = optim.Adam(discriminator.parameters(), lr=1e-5, betas=(0.5, 0.999))
+
+
 
     def forward(self, img_A):
         """Genera imágenes fake y evalúa su calidad."""
@@ -243,13 +300,12 @@ class Pix2PixGAN(nn.Module):
         """Inicialización de pesos con distribución normal N(0, 0.02)"""
         def weights_init(m):
             classname = m.__class__.__name__
-            if classname.find('Conv') != -1:
-                nn.init.normal_(m.weight.data, mean=0.0, std=0.02)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias.data, 0)
-            elif classname.find('BatchNorm') != -1:
-                nn.init.normal_(m.weight.data, mean=1.0, std=0.02)
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.normal_(m.weight.data, 0.0, 0.02)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.normal_(m.weight.data, 1.0, 0.02)
                 nn.init.constant_(m.bias.data, 0)
+
 
         # Inicializar pesos del generador y del discriminador
         self.generator.apply(weights_init)
@@ -433,11 +489,12 @@ def train(d_model, g_model, gan_model, dataloader, n_epochs=100, save_every_n=5)
                 gan_model.optimizer_D.zero_grad()
 
                 # Generar imágenes falsas
-                fake_B = g_model(real_A).to(device)
+                fake_B = g_model(real_A)  # No es necesario moverlo a device después
 
                 # Crear etiquetas para reales y falsas
-                y_real = torch.ones((real_A.size(0), 1, n_patch, n_patch)).to(device)
-                y_fake = torch.zeros((real_A.size(0), 1, n_patch, n_patch)).to(device)
+                y_real = torch.ones((real_A.size(0), 1, n_patch, n_patch)).to(device) * 0.9
+                y_fake = torch.zeros((real_A.size(0), 1, n_patch, n_patch)).to(device) + 0.1
+
 
                 # Pérdida del discriminador con imágenes reales
                 pred_real = d_model(real_A, real_B)
@@ -466,11 +523,13 @@ def train(d_model, g_model, gan_model, dataloader, n_epochs=100, save_every_n=5)
                 loss_GAN = nn.BCELoss()(pred_fake, y_real)
 
                 # Pérdida L1 para mantener similitud con la imagen real
-                loss_L1 = nn.L1Loss()(fake_B, real_B) * 100
+                loss_L1 = nn.L1Loss()(fake_B, real_B) * 5
 
                 # Pérdida total del generador
-                loss_G = loss_GAN + loss_L1
+                loss_G = loss_GAN + 50 * loss_L1
                 loss_G.backward()
+                torch.nn.utils.clip_grad_norm_(gan_model.generator.parameters(), max_norm=1.0)
+
                 gan_model.optimizer_G.step()
 
                 #### ---------------------------
@@ -507,7 +566,7 @@ def train(d_model, g_model, gan_model, dataloader, n_epochs=100, save_every_n=5)
 if __name__ == "__main__":
 
     # Cargar hiperparámetros desde config.yaml
-    config = load_config("yaml/config_asus.yaml")
+    config = load_config("yaml/config_dgx-1.yaml")
 
     BATCH_SIZE = config["BATCH_SIZE"]
     EPOCHS = config["EPOCHS"]
@@ -516,7 +575,7 @@ if __name__ == "__main__":
     # Crear carpeta dinámica de resultados basada en timestamp y dataset
     dataset_name = "maps_processed"  # Cambia el nombre si es necesario
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"../output/{timestamp}_pix2pix_unet_{dataset_name}"
+    output_dir = f"../output/{timestamp}_pix2pix_vit_{dataset_name}"
     os.makedirs(output_dir, exist_ok=True)
     print(f"Results to be stored in: {output_dir}")
 
@@ -539,10 +598,12 @@ if __name__ == "__main__":
     generator = Pix2PixGenerator(input_channels=3, output_channels=3)
     discriminator = PatchDiscriminator(input_channels=3)
 
+    #'''
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs for training.")
         generator = nn.DataParallel(generator)
         discriminator = nn.DataParallel(discriminator)
+    #'''
 
     # Mover modelos a GPU o CPU según disponibilidad
     generator = generator.to(device)

@@ -9,3 +9,8 @@ tqdm
 Pillow
 PyYAML
 opencv-python
+timm
+huggingface_hub
+urllib3
+idna
+certifi
