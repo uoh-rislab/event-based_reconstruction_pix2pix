@@ -3,7 +3,7 @@
 docker rm -fv ignacio_event_reconst_pix2pix
 
 docker run -it \
-  --gpus '"device=0,1"' \
+  --gpus '"device=0,1,2,3,4,5,6,7"' \
   --name ignacio_event_reconst_pix2pix \
   --shm-size=32g \
   --ipc=host \
