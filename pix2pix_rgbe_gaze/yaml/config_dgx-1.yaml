@@ -1,0 +1,23 @@
+DATASET_ROOT: /app/input/rgbe-gaze
+OUTPUT_ROOT: /app/output/pix2pix_rgbe_gaze
+
+IMAGE_SIZE: 512
+BATCH_SIZE: 4
+EPOCHS: 100
+SAVE_EVERY_N_EPOCHS: 10
+NUM_WORKERS: 4
+MAX_VALIDATION_BATCHES: 100
+
+LEARNING_RATE: 0.0002
+BETA1: 0.5
+LAMBDA_L1: 100.0
+MIXED_PRECISION: true
+SEED: 44
+STRICT_PAIRS: false
+
+USERS: [user_1]
+SPLITS:
+  train: [exp1, exp2, exp3, exp4]
+  val: [exp5]
+  test: [exp6]
+

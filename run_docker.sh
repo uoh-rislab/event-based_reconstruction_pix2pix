@@ -9,4 +9,5 @@ docker run -it \
   --ipc=host \
   -v /home/ignacio.bugueno/cachefs/event_reconst_pix2pix/input:/app/input \
   -v /home/ignacio.bugueno/cachefs/event_reconst_pix2pix/output:/app/output \
+  -v /home/ignacio.bugueno/cachefs/datasets/processed_data/reconstruction/rgbe-gaze:/app/input/rgbe-gaze:ro \
   ignacio_event_reconst_pix2pix
