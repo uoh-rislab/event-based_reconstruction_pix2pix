@@ -2,7 +2,7 @@ DATASET_ROOT: /app/input/rgbe-gaze
 OUTPUT_ROOT: /app/output/pix2pix_rgbe_gaze
 
 IMAGE_SIZE: 512
-BATCH_SIZE: 4
+BATCH_SIZE: 16
 EPOCHS: 100
 SAVE_EVERY_N_EPOCHS: 10
 NUM_WORKERS: 4

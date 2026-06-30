@@ -1,0 +1,23 @@
+# For e-CK+ with TIE
+
+cd pix2pix_unet_faces/
+
+python train_pytorch.py --device dgx-1 --x1 X1_t_t --gpu 0
+python train_pytorch.py --device dgx-1 --x1 X1_t_t0 --gpu 0
+python train_pytorch.py --device dgx-1 --x1 X1_t0_t --gpu 0
+python train_pytorch.py --device dgx-1 --x1 X1_t0_t0 --gpu 0
+
+# For RGB-E Gaze
+
+cd /app/pix2pix_rgbe_gaze#
+python train.py \
+  --device dgx-1 \
+  --rep acc_events \
+  --gpu 7 \
+  --users user_1
+
+python train.py \
+  --device dgx-1 \
+  --rep acc_events \
+  --gpu 0,1 \
+  --all-users

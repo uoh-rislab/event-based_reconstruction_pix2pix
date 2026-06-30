@@ -102,9 +102,9 @@ def validate(
     generator.train()
     if samples == 0:
         raise ValueError("Validation loader produced no samples")
-    return {name: value / samples for name, value in totals.items()} | {
-        "samples": samples
-    }
+    result = {name: value / samples for name, value in totals.items()}
+    result["samples"] = samples
+    return result
 
 
 @torch.no_grad()
