@@ -157,6 +157,26 @@ Evaluation writes event/generated/target images, horizontal comparisons,
 per-image metrics, and a JSON summary for MSE, SSIM, and PSNR. It refuses to
 write into a non-empty evaluation directory unless `--overwrite` is provided.
 
+## Generate labeled horizontal examples
+
+Generate eight `Input (event) | Generated | Target` comparisons from `exp6`:
+
+```bash
+python sample.py \
+  --device dgx-1 \
+  --rep acc_events \
+  --gpu 7 \
+  --users user_1 \
+  --checkpoint /app/output/pix2pix_rgbe_gaze/NAME/checkpoints/best.pt \
+  --split test \
+  --limit 8
+```
+
+By default, images are written below `NAME/samples/test-best/`. Use
+`--output-dir` to select another location. The command refuses to write into a
+non-empty directory unless `--overwrite` is supplied. Use `--offset` to inspect
+a later portion of the split.
+
 ## Updating the already running container
 
 No Dockerfile or `run_docker.sh` changes are required. After committing and
