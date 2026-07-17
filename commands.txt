@@ -21,3 +21,18 @@ python train.py \
   --rep acc_events \
   --gpu 0,1 \
   --all-users
+
+python sample.py \
+  --device dgx-1 \
+  --rep acc_events \
+  --gpu 1 \
+  --users user_1 \
+  --checkpoint /app/output/pix2pix_rgbe_gaze/20260630_142723_pix2pix_rgbe_gaze_acc_events_user-1/checkpoints/best.pt \
+  --split test \
+  --limit 100 \
+  --offset 0
+
+
+# generate 3 images
+
+python scripts/compose_rgbe_triplets.py   --input-dir /home/ignacio/tmp4/pix2pix-512-user1/user_1/exp6   --output-dir /home/ignacio/tmp4/pix2pix-512-user1/user_1/exp6_comparisons

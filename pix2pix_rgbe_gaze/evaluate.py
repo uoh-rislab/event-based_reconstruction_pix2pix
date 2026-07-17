@@ -137,6 +137,9 @@ def main() -> None:
         summary[metric] = {
             "mean": float(values.mean()) if values.size else None,
             "std": float(values.std()) if values.size else None,
+            "median": float(np.median(values)) if values.size else None,
+            "min": float(values.min()) if values.size else None,
+            "max": float(values.max()) if values.size else None,
             "non_finite": len(metric_rows) - int(values.size),
         }
     (output_dir / "summary.json").write_text(
